@@ -54,7 +54,7 @@
     "ocr": true,
     "quality_fallback": true,
     "page_range": true,
-    "chunked_output": true
+    "chunked_output": false
   },
   "notes": "Optional extras: text-extractor[ocr] for OCR stack, text-extractor[docling] for complex layout extraction."
 }
