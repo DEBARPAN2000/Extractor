@@ -1,0 +1,60 @@
+{
+  "name": "text-extractor",
+  "display_name": "Text Extractor",
+  "description": "Lightweight MCP server for extracting text from PDFs and images with quality-aware fallback routing.",
+  "version": "0.2.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DEBARPAN2000/Extractor"
+  },
+  "homepage": "https://github.com/DEBARPAN2000/Extractor",
+  "package": {
+    "name": "text-extractor",
+    "registry": "pypi"
+  },
+  "runtime": {
+    "type": "python",
+    "min_version": "3.10"
+  },
+  "launch": {
+    "command": "uvx",
+    "args": [
+      "--from",
+      "text-extractor",
+      "text-extractor-mcp"
+    ],
+    "transport": "stdio"
+  },
+  "tools": [
+    {
+      "name": "extract_text_from_file",
+      "description": "Extract text from a PDF or image file as markdown."
+    },
+    {
+      "name": "extract_text_pages",
+      "description": "Extract text from specific pages of a PDF."
+    },
+    {
+      "name": "get_document_info",
+      "description": "Get document metadata and structure before extraction."
+    }
+  ],
+  "tags": [
+    "mcp",
+    "pdf",
+    "ocr",
+    "text-extraction",
+    "llm",
+    "agent-tools"
+  ],
+  "capabilities": {
+    "pdf": true,
+    "image": true,
+    "ocr": true,
+    "quality_fallback": true,
+    "page_range": true,
+    "chunked_output": true
+  },
+  "notes": "Optional extras: text-extractor[ocr] for OCR stack, text-extractor[docling] for complex layout extraction."
+}

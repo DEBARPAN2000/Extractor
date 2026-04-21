@@ -32,7 +32,7 @@ def extract_text_from_file(
 
     Automatically detects whether the file is a digital PDF, scanned PDF,
     or image, and uses the best available extraction backend.
-    Uses quality-aware fallback: pypdf → pdfplumber → pdf2image+OCR.
+    Uses quality-aware fallback: pypdf → pdfplumber → docling → pdf2image+OCR.
 
     Args:
         file_path: Absolute path to a PDF or image file.

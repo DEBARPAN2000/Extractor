@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "text-extractor"
-version = "0.1.0"
+version = "0.2.0"
 description = "Lightweight MCP server + CLI for extracting text from PDFs and images. Agent-first, zero-config."
 readme = "README.md"
 license = "MIT"
@@ -28,11 +28,13 @@ dependencies = [
 
 [project.optional-dependencies]
 ocr = ["pytesseract>=0.3", "Pillow>=10.0", "pdf2image>=1.16"]
-all = ["pytesseract>=0.3", "Pillow>=10.0", "pdf2image>=1.16"]
+docling = ["docling>=2.40.0"]
+all = ["pytesseract>=0.3", "Pillow>=10.0", "pdf2image>=1.16", "docling>=2.40.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
 
 [project.scripts]
 text-extractor = "text_extractor.cli:main"
+text-extractor-mcp = "text_extractor.mcp_server:main"
 
 [project.entry-points."mcp.servers"]
 text-extractor = "text_extractor.mcp_server:mcp"
