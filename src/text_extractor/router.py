@@ -249,17 +249,20 @@ def extract(
     from text_extractor.backends import docling_backend
     if (score < 0.85 or density < 120) and docling_backend.is_available():
         logger.info("Quality still low (%.2f), trying docling...", score)
-        if start_page is not None or end_page is not None:
-            docling_result = docling_backend.extract_pages(path, start_page or 1, end_page or 10**9)
-        else:
-            docling_result = docling_backend.extract(path)
-        docling_sample = _sample_text(docling_result)
-        docling_score = text_quality_score(docling_sample)
-        logger.info("docling quality score: %.2f", docling_score)
+        try:
+            if start_page is not None or end_page is not None:
+                docling_result = docling_backend.extract_pages(path, start_page or 1, end_page or 10**9)
+            else:
+                docling_result = docling_backend.extract(path)
+            docling_sample = _sample_text(docling_result)
+            docling_score = text_quality_score(docling_sample)
+            logger.info("docling quality score: %.2f", docling_score)
 
-        if docling_score > score:
-            result = docling_result
-            score = docling_score
+            if docling_score > score:
+                result = docling_result
+                score = docling_score
+        except Exception:
+            logger.exception("Docling extraction failed; continuing to OCR fallback.")
 
     # Step 4: pdf2image + OCR (last resort for PDFs)
     from text_extractor.backends import pdf2image_backend
