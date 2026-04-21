@@ -71,13 +71,17 @@ def extract(file_path: str | Path) -> ExtractionResult:
 
 
 def extract_pages(file_path: str | Path, start: int, end: int) -> ExtractionResult:
-    """Extract using Docling for compatibility with page-range entry points.
+    """Extract a page range using Docling.
 
-    Note: Docling API does not expose stable, direct page slicing across versions,
-    so this backend currently returns full-document markdown in a single page.
+    Docling does not expose a stable page-slicing API across supported versions
+    in this backend, so ranged extraction is not supported. Callers should fall
+    back to a backend that can honor page boundaries.
     """
-    _ = (start, end)
-    return extract(file_path)
+    _ = (file_path, start, end)
+    raise NotImplementedError(
+        "Docling backend does not support page-range extraction; "
+        "use full-document extract() or fall back to another backend."
+    )
 
 
 def is_available() -> bool:
