@@ -185,6 +185,7 @@ def extract(
 
     # Text PDFs — quality-aware selection
     if strategy == "docling":
+        from text_extractor.backends import docling_backend
         if start_page is not None or end_page is not None:
             # Docling's extract_pages() does not currently honor page ranges,
             # so preserve caller semantics by falling back to a page-aware backend.
@@ -193,9 +194,14 @@ def extract(
                 result = pdfplumber_backend.extract_pages(path, start_page or 1, end_page or 10**9)
             else:
                 result = pypdf_extract_pages(path, start_page or 1, end_page or 10**9)
+        elif docling_backend.is_available():
+            try:
+                result = docling_backend.extract(path)
+            except Exception:
+                logger.exception("Docling extraction failed; falling back to pypdf.")
+                result = pypdf_extract(path)
         else:
-            from text_extractor.backends import docling_backend
-            result = docling_backend.extract(path)
+            result = pypdf_extract(path)
     elif strategy == "pdfplumber":
         from text_extractor.backends import pdfplumber_backend
         if pdfplumber_backend.is_available():
@@ -247,13 +253,15 @@ def extract(
 
     # Step 3: docling (optional high-quality parser)
     from text_extractor.backends import docling_backend
-    if (score < 0.85 or density < 120) and docling_backend.is_available():
+    if (
+        start_page is None
+        and end_page is None
+        and (score < 0.85 or density < 120)
+        and docling_backend.is_available()
+    ):
         logger.info("Quality still low (%.2f), trying docling...", score)
         try:
-            if start_page is not None or end_page is not None:
-                docling_result = docling_backend.extract_pages(path, start_page or 1, end_page or 10**9)
-            else:
-                docling_result = docling_backend.extract(path)
+            docling_result = docling_backend.extract(path)
             docling_sample = _sample_text(docling_result)
             docling_score = text_quality_score(docling_sample)
             logger.info("docling quality score: %.2f", docling_score)
