@@ -10,7 +10,7 @@
   },
   "homepage": "https://github.com/DEBARPAN2000/Extractor",
   "package": {
-    "name": "text-extractor",
+    "name": "text-extractor-lightweight",
     "registry": "pypi"
   },
   "runtime": {
@@ -21,7 +21,7 @@
     "command": "uvx",
     "args": [
       "--from",
-      "text-extractor",
+      "text-extractor-lightweight",
       "text-extractor-mcp"
     ],
     "transport": "stdio"
@@ -56,5 +56,5 @@
     "page_range": true,
     "chunked_output": false
   },
-  "notes": "Optional extras: text-extractor[ocr] for OCR stack, text-extractor[docling] for complex layout extraction."
+  "notes": "Optional extras: text-extractor-lightweight[ocr] for OCR stack, text-extractor-lightweight[docling] for complex layout extraction."
 }

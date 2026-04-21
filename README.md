@@ -1,29 +1,43 @@
 # Text Extractor
 
-Lightweight MCP server + CLI for extracting text from PDFs and images. Built for LLM agents.
+[![PyPI version](https://img.shields.io/pypi/v/text-extractor-lightweight.svg)](https://pypi.org/project/text-extractor-lightweight/)
+[![Python](https://img.shields.io/pypi/pyversions/text-extractor-lightweight.svg)](https://pypi.org/project/text-extractor-lightweight/)
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**Zero-config** for digital PDFs. Quality-aware fallback and OCR support for scanned/image-heavy PDFs.
+Lightweight MCP server + CLI for extracting text from PDFs and images, designed for agent workflows.
+
+It is fast on normal digital PDFs, but can still recover text from difficult documents with quality-aware fallback and optional OCR.
+
+## Features
+
+- Zero-config extraction for standard PDFs
+- Smart fallback chain for low-quality or scanned pages
+- Optional OCR stack for image-heavy PDFs and image files
+- MCP tools ready for VS Code, Claude, and agent runtimes
+- CLI and Python API in one package
 
 ## Install
 
-```bash
-pip install text-extractor
-```
-
-For OCR support (scanned PDFs, images):
+Install the package:
 
 ```bash
-pip install text-extractor[ocr]
-# Also install system dependencies:
-# - Tesseract OCR: https://github.com/tesseract-ocr/tesseract
-# - Poppler (pdftoppm) for PDF->image conversion
+pip install text-extractor-lightweight
 ```
 
-For high-quality extraction on complex layouts (optional):
+Optional extras:
 
 ```bash
-pip install text-extractor[docling]
+# OCR support (scanned PDFs, images)
+pip install "text-extractor-lightweight[ocr]"
+
+# Better handling of complex layouts
+pip install "text-extractor-lightweight[docling]"
 ```
+
+System dependencies for OCR:
+
+- Tesseract OCR: https://github.com/tesseract-ocr/tesseract
+- Poppler (`pdftoppm`) for PDF to image conversion
 
 Windows (winget):
 
@@ -32,34 +46,42 @@ winget install --id tesseract-ocr.tesseract -e
 winget install --id oschwartz10612.Poppler -e
 ```
 
-## CLI Usage
+## CLI
+
+The package name is `text-extractor-lightweight`, and it installs CLI commands `text-extractor` and `text-extractor-mcp`.
 
 ```bash
-# Extract text from a PDF
+# Extract full text from a PDF
 text-extractor report.pdf
 
 # Extract from an image
 text-extractor screenshot.png
 
-# Specific pages only
+# Extract only specific pages
 text-extractor report.pdf --pages 1-5
 
-# Document info without full extraction
+# Show document metadata/summary only
 text-extractor report.pdf --info
 
-# Check which strategy will be used
+# Show which strategy would be used
 text-extractor report.pdf --strategy
 
-# Large doc? Split into token-bounded chunks
+# Chunk large output by token budget
 text-extractor large.pdf --chunk-tokens 50000
 ```
 
-## MCP Server — for AI Agents
+## MCP Server
+
+Run directly with `uvx`:
+
+```bash
+uvx --from text-extractor-lightweight text-extractor-mcp
+```
 
 ### Claude Code
 
 ```bash
-claude mcp add text-extractor -- uvx --from text-extractor text-extractor-mcp
+claude mcp add text-extractor -- uvx --from text-extractor-lightweight text-extractor-mcp
 ```
 
 ### VS Code / GitHub Copilot
@@ -71,7 +93,7 @@ Add to `.vscode/mcp.json`:
   "servers": {
     "text-extractor": {
       "command": "uvx",
-      "args": ["--from", "text-extractor", "text-extractor-mcp"]
+      "args": ["--from", "text-extractor-lightweight", "text-extractor-mcp"]
     }
   }
 }
@@ -86,75 +108,70 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "text-extractor": {
       "command": "uvx",
-      "args": ["--from", "text-extractor", "text-extractor-mcp"]
+      "args": ["--from", "text-extractor-lightweight", "text-extractor-mcp"]
     }
   }
 }
 ```
 
-## MCP Tools
+## Exposed MCP Tools
 
 | Tool | Description |
 |------|-------------|
 | `extract_text_from_file` | Extract full text from a PDF or image as markdown |
-| `extract_text_pages` | Extract text from specific page range |
-| `get_document_info` | Get page count, type, metadata, token estimate |
+| `extract_text_pages` | Extract text from a specific page range |
+| `get_document_info` | Get page count, type, metadata, and token estimate |
 
-## How It Works
+## Extraction Strategy
 
-Smart routing picks the best backend automatically:
+Automatic routing selects the best backend by file type and quality:
 
+```text
+Image file        -> Tesseract OCR
+Digital PDF       -> pypdf (fast path)
+Garbled PDF text  -> pdfplumber
+Complex layout    -> docling (optional)
+Scanned/image PDF -> pdf2image + Tesseract OCR
 ```
-Image file       -> Tesseract OCR
-Digital PDF      -> pypdf (fast)
-Garbled PDF text -> pdfplumber (better font mapping)
-Complex layout   -> docling (optional, higher fidelity)
-Scanned/image PDF-> pdf2image + Tesseract OCR
-```
 
-Fallback chain for PDFs: `pypdf -> pdfplumber -> docling -> pdf2image+OCR`.
+PDF fallback chain:
 
-Performance features:
-
-- In-memory extraction cache by file fingerprint (`path + size + mtime`)
-- Page-range extraction (`extract_text_pages`) avoids parsing full documents
-- Parallel OCR across pages
-- Fast pre-sampling to detect low-quality extraction and skip wasteful paths on large PDFs
+`pypdf -> pdfplumber -> docling -> pdf2image+OCR`
 
 ## Python API
 
 ```python
 from text_extractor.extract import extract_text, extract_raw
 
-# Get markdown string
+# Markdown output
 markdown = extract_text("report.pdf")
 
-# Get structured result
+# Structured output
 result = extract_raw("report.pdf")
 print(result.total_pages, result.estimated_tokens)
 for page in result.pages:
     print(f"Page {page.page_number}: {page.char_count} chars")
 ```
 
-## License
+## Troubleshooting
 
-MIT
+- If `text-extractor` is not found on Windows, ensure the Python Scripts directory is in PATH.
+- For MCP stdio mode, do not send random JSON to stdin; only an MCP client should talk to the server.
+- If OCR is not triggered on scanned docs, confirm Tesseract and Poppler are installed and visible to the process.
 
-## Release & Publishing
+## Release
+
+Quick publish flow:
 
 ```bash
-# Build artifacts
 python -m build
-
-# Publish to TestPyPI (recommended first)
+python -m twine check dist/*
 python -m twine upload --repository testpypi dist/*
-
-# Publish to PyPI
 python -m twine upload dist/*
 ```
 
-MCP Registry listing:
+For the full step-by-step process, see `RELEASE_CHECKLIST.md`.
 
-1. Ensure package is published and installable via `uvx --from text-extractor text-extractor-mcp`.
-2. Submit tool metadata in MCP Registry format using this project's MCP server entry point.
-3. Verify discovery in Claude/Copilot by adding server config shown above.
+## License
+
+MIT

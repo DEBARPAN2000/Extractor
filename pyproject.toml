@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "text-extractor"
+name = "text-extractor-lightweight"
 version = "0.2.0"
 description = "Lightweight MCP server + CLI for extracting text from PDFs and images. Agent-first, zero-config."
 readme = "README.md"
@@ -45,3 +45,4 @@ packages = ["src/text_extractor"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+pythonpath = ["src"]
