@@ -2,7 +2,7 @@
 
 Strategy (quality-aware fallback chain):
 1. Image file → Tesseract OCR (if available)
-2. PDF → try pypdf (fast) → check quality → pdfplumber → pdf2image+OCR
+2. PDF → try pypdf (fast) → check quality → pdfplumber → docling → pdf2image+OCR
 3. Each step checks text quality; escalates if garbled or empty.
 """
 
@@ -83,7 +83,7 @@ def _quick_pdf_health(file_path: Path) -> tuple[float, float]:
 def detect_strategy(file_path: str | Path) -> str:
     """Detect which extraction strategy to use.
 
-    Returns one of: "pypdf", "pdfplumber", "pdf2image_ocr",
+    Returns one of: "pypdf", "pdfplumber", "docling", "pdf2image_ocr",
     "tesseract_image", "tesseract_pdf", "pypdf_fallback", "unsupported"
     """
     path = Path(file_path)
@@ -132,6 +132,10 @@ def detect_strategy(file_path: str | Path) -> str:
         # Has text — quality determined at extraction time
         # But if quick sample already looks garbled, prefer pdfplumber.
         if quick_score < 0.85:
+            from text_extractor.backends import pdfplumber_backend
+            from text_extractor.backends import docling_backend
+            if not pdfplumber_backend.is_available() and docling_backend.is_available():
+                return "docling"
             return "pdfplumber"
         return "pypdf"
 
@@ -145,7 +149,7 @@ def extract(
 ) -> ExtractionResult:
     """Route extraction with quality-aware fallback chain.
 
-    Chain: pypdf → pdfplumber → pdf2image+OCR
+    Chain: pypdf → pdfplumber → docling → pdf2image+OCR
     At each step, sample text quality. If low, escalate.
     """
     path = Path(file_path)
@@ -180,7 +184,25 @@ def extract(
         )
 
     # Text PDFs — quality-aware selection
-    if strategy == "pdfplumber":
+    if strategy == "docling":
+        from text_extractor.backends import docling_backend
+        if start_page is not None or end_page is not None:
+            # Docling's extract_pages() does not currently honor page ranges,
+            # so preserve caller semantics by falling back to a page-aware backend.
+            from text_extractor.backends import pdfplumber_backend
+            if pdfplumber_backend.is_available():
+                result = pdfplumber_backend.extract_pages(path, start_page or 1, end_page or 10**9)
+            else:
+                result = pypdf_extract_pages(path, start_page or 1, end_page or 10**9)
+        elif docling_backend.is_available():
+            try:
+                result = docling_backend.extract(path)
+            except Exception:
+                logger.exception("Docling extraction failed; falling back to pypdf.")
+                result = pypdf_extract(path)
+        else:
+            result = pypdf_extract(path)
+    elif strategy == "pdfplumber":
         from text_extractor.backends import pdfplumber_backend
         if pdfplumber_backend.is_available():
             if start_page is not None or end_page is not None:
@@ -229,7 +251,28 @@ def extract(
             result = plumber_result
             score = plumber_score
 
-    # Step 3: pdf2image + OCR (last resort for PDFs)
+    # Step 3: docling (optional high-quality parser)
+    from text_extractor.backends import docling_backend
+    if (
+        start_page is None
+        and end_page is None
+        and (score < 0.85 or density < 120)
+        and docling_backend.is_available()
+    ):
+        logger.info("Quality still low (%.2f), trying docling...", score)
+        try:
+            docling_result = docling_backend.extract(path)
+            docling_sample = _sample_text(docling_result)
+            docling_score = text_quality_score(docling_sample)
+            logger.info("docling quality score: %.2f", docling_score)
+
+            if docling_score > score:
+                result = docling_result
+                score = docling_score
+        except Exception:
+            logger.exception("Docling extraction failed; continuing to OCR fallback.")
+
+    # Step 4: pdf2image + OCR (last resort for PDFs)
     from text_extractor.backends import pdf2image_backend
     if (score < 0.85 or density < 120) and pdf2image_backend.is_available():
         logger.info("Quality still low (%.2f), trying pdf2image+OCR...", score)

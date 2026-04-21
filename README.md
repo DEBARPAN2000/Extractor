@@ -19,6 +19,12 @@ pip install text-extractor[ocr]
 # - Poppler (pdftoppm) for PDF->image conversion
 ```
 
+For high-quality extraction on complex layouts (optional):
+
+```bash
+pip install text-extractor[docling]
+```
+
 Windows (winget):
 
 ```powershell
@@ -102,10 +108,11 @@ Smart routing picks the best backend automatically:
 Image file       -> Tesseract OCR
 Digital PDF      -> pypdf (fast)
 Garbled PDF text -> pdfplumber (better font mapping)
+Complex layout   -> docling (optional, higher fidelity)
 Scanned/image PDF-> pdf2image + Tesseract OCR
 ```
 
-Fallback chain for PDFs: `pypdf -> pdfplumber -> pdf2image+OCR`.
+Fallback chain for PDFs: `pypdf -> pdfplumber -> docling -> pdf2image+OCR`.
 
 Performance features:
 
@@ -132,3 +139,22 @@ for page in result.pages:
 ## License
 
 MIT
+
+## Release & Publishing
+
+```bash
+# Build artifacts
+python -m build
+
+# Publish to TestPyPI (recommended first)
+python -m twine upload --repository testpypi dist/*
+
+# Publish to PyPI
+python -m twine upload dist/*
+```
+
+MCP Registry listing:
+
+1. Ensure package is published and installable via `uvx --from text-extractor text-extractor-mcp`.
+2. Submit tool metadata in MCP Registry format using this project's MCP server entry point.
+3. Verify discovery in Claude/Copilot by adding server config shown above.
