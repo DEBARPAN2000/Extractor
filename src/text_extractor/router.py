@@ -185,10 +185,16 @@ def extract(
 
     # Text PDFs — quality-aware selection
     if strategy == "docling":
-        from text_extractor.backends import docling_backend
         if start_page is not None or end_page is not None:
-            result = docling_backend.extract_pages(path, start_page or 1, end_page or 10**9)
+            # Docling's extract_pages() does not currently honor page ranges,
+            # so preserve caller semantics by falling back to a page-aware backend.
+            from text_extractor.backends import pdfplumber_backend
+            if pdfplumber_backend.is_available():
+                result = pdfplumber_backend.extract_pages(path, start_page or 1, end_page or 10**9)
+            else:
+                result = pypdf_extract_pages(path, start_page or 1, end_page or 10**9)
         else:
+            from text_extractor.backends import docling_backend
             result = docling_backend.extract(path)
     elif strategy == "pdfplumber":
         from text_extractor.backends import pdfplumber_backend
