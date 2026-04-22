@@ -27,11 +27,17 @@ pip install text-extractor-lightweight
 Optional extras:
 
 ```bash
+# Fast extraction via PyMuPDF (recommended — handles complex fonts, 10-20x faster)
+pip install "text-extractor-lightweight[fast]"
+
 # OCR support (scanned PDFs, images)
 pip install "text-extractor-lightweight[ocr]"
 
 # Better handling of complex layouts
 pip install "text-extractor-lightweight[docling]"
+
+# Everything
+pip install "text-extractor-lightweight[all]"
 ```
 
 System dependencies for OCR:
@@ -128,15 +134,17 @@ Automatic routing selects the best backend by file type and quality:
 
 ```text
 Image file        -> Tesseract OCR
-Digital PDF       -> pypdf (fast path)
-Garbled PDF text  -> pdfplumber
-Complex layout    -> docling (optional)
+Digital PDF       -> pymupdf (fast path, recommended)
+                     pypdf (fallback if pymupdf not installed)
+Garbled PDF text  -> pdfplumber -> docling (optional)
 Scanned/image PDF -> pdf2image + Tesseract OCR
 ```
 
 PDF fallback chain:
 
-`pypdf -> pdfplumber -> docling -> pdf2image+OCR`
+`pymupdf -> pdfplumber -> docling -> pdf2image+OCR`
+
+PyMuPDF (`pip install "text-extractor-lightweight[fast]"`) is the preferred PDF backend. It correctly decodes custom embedded fonts (where pypdf/pdfplumber emit garbled `(cid:N)` output) and is 10–20x faster than pypdf.
 
 ## Python API
 

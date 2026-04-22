@@ -2,8 +2,10 @@
 
 Strategy (quality-aware fallback chain):
 1. Image file → Tesseract OCR (if available)
-2. PDF → try pypdf (fast) → check quality → pdfplumber → docling → pdf2image+OCR
-3. Each step checks text quality; escalates if garbled or empty.
+2. PDF → preflight with PyMuPDF (or pypdf) to measure text density and quality
+3. Sparse/scanned PDF → pdf2image+OCR
+4. Dense digital PDF → pymupdf (preferred) → pdfplumber → docling → OCR
+   Each step checks quality (including CID artifact detection); escalates if poor.
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ from pathlib import Path
 from text_extractor.backends import tesseract_backend
 from text_extractor.backends.pypdf_backend import extract as pypdf_extract
 from text_extractor.backends.pypdf_backend import extract_pages as pypdf_extract_pages
-from text_extractor.quality import is_low_quality, text_quality_score
+from text_extractor.quality import cid_ratio, is_low_quality, text_quality_score
 from text_extractor.types import ExtractionResult
 
 logger = logging.getLogger(__name__)
@@ -23,21 +25,6 @@ logger = logging.getLogger(__name__)
 
 def _is_pdf(path: Path) -> bool:
     return path.suffix.lower() == ".pdf"
-
-
-def _pdf_has_text(file_path: Path) -> bool:
-    """Quick check: does the PDF have any extractable text?"""
-    try:
-        from pypdf import PdfReader
-
-        reader = PdfReader(file_path)
-        for page in reader.pages[:3]:
-            text = page.extract_text() or ""
-            if text.strip():
-                return True
-        return False
-    except Exception:
-        return False
 
 
 def _sample_text(result: ExtractionResult, sample_pages: int = 5) -> str:
@@ -53,38 +40,74 @@ def _sample_text(result: ExtractionResult, sample_pages: int = 5) -> str:
 def _quick_pdf_health(file_path: Path) -> tuple[float, float]:
     """Quickly estimate (quality_score, meaningful_chars_per_sampled_page).
 
-    Samples a handful of pages instead of extracting full document to reduce latency.
+    Samples pages at 0%, 25%, 50%, 75% of the document to avoid bias from
+    cover/promotional last pages.  Prefers PyMuPDF for sampling when available
+    because it is faster and handles font encoding correctly.
     """
     try:
-        from pypdf import PdfReader
+        try:
+            import fitz
+            return _quick_health_fitz(file_path, fitz)
+        except ImportError:
+            return _quick_health_pypdf(file_path)
+    except Exception:
+        return 0.0, 0.0
 
-        reader = PdfReader(file_path)
-        total = len(reader.pages)
+
+def _quick_health_fitz(file_path: Path, fitz) -> tuple[float, float]:  # type: ignore[type-arg]
+    doc = fitz.open(str(file_path))
+    try:
+        total = len(doc)
         if total == 0:
             return 0.0, 0.0
-
-        idx = sorted({0, min(1, total - 1), total // 2, max(total - 2, 0), total - 1})
+        # Sample at 0%, 25%, 50%, 75% (skip last page to avoid promotional footers)
+        idx = sorted({int(total * q) for q in (0.0, 0.25, 0.5, 0.75)})
+        idx = [max(0, min(i, total - 1)) for i in idx]
         texts: list[str] = []
         meaningful_total = 0
-
         for i in idx:
-            t = reader.pages[i].extract_text() or ""
+            t = doc[i].get_text()
             texts.append(t)
             meaningful_total += sum(1 for c in t if c.isalnum())
-
         joined = "\n".join(texts)
         score = text_quality_score(joined)
         density = meaningful_total / max(1, len(idx))
         return score, density
-    except Exception:
+    finally:
+        doc.close()
+
+
+def _quick_health_pypdf(file_path: Path) -> tuple[float, float]:
+    from pypdf import PdfReader
+
+    reader = PdfReader(file_path)
+    total = len(reader.pages)
+    if total == 0:
         return 0.0, 0.0
+    idx = sorted({int(total * q) for q in (0.0, 0.25, 0.5, 0.75)})
+    idx = [max(0, min(i, total - 1)) for i in idx]
+    texts: list[str] = []
+    meaningful_total = 0
+    for i in idx:
+        t = reader.pages[i].extract_text() or ""
+        texts.append(t)
+        # Strip CID patterns before counting meaningful chars so that CID-heavy
+        # pages don't look falsely dense.
+        from text_extractor.quality import _CID_PATTERN  # type: ignore[attr-defined]
+        clean_t = _CID_PATTERN.sub("", t)
+        meaningful_total += sum(1 for c in clean_t if c.isalnum())
+    joined = "\n".join(texts)
+    score = text_quality_score(joined)
+    density = meaningful_total / max(1, len(idx))
+    return score, density
 
 
 def detect_strategy(file_path: str | Path) -> str:
     """Detect which extraction strategy to use.
 
-    Returns one of: "pypdf", "pdfplumber", "docling", "pdf2image_ocr",
-    "tesseract_image", "tesseract_pdf", "pypdf_fallback", "unsupported"
+    Returns one of: "pymupdf", "pypdf", "pdfplumber", "docling",
+    "pdf2image_ocr", "tesseract_image", "tesseract_pdf",
+    "pypdf_fallback", "unsupported"
     """
     path = Path(file_path)
 
@@ -94,25 +117,12 @@ def detect_strategy(file_path: str | Path) -> str:
         return "unsupported"
 
     if _is_pdf(path):
-        # For very large PDFs, skip expensive full-text backends by default.
-        # These are often scanned/image-heavy exam books.
-        try:
-            size_mb = path.stat().st_size / (1024 * 1024)
-        except OSError:
-            size_mb = 0.0
-
-        if size_mb >= 20:
-            from text_extractor.backends import pdf2image_backend
-            if pdf2image_backend.is_available():
-                return "pdf2image_ocr"
-            if tesseract_backend.is_available():
-                return "tesseract_pdf"
-            return "pypdf_fallback"
-
+        # Preflight: sample a few pages to assess text density and quality.
+        # Uses PyMuPDF if available (faster + correct font decoding);
+        # falls back to pypdf otherwise.
         quick_score, quick_density = _quick_pdf_health(path)
 
-        # If sampled pages have very low meaningful content, this is likely
-        # an image PDF with sparse text layer. Prefer OCR immediately.
+        # Sparse text layer — likely a scanned/image PDF.  Route to OCR.
         if quick_density < 120:
             from text_extractor.backends import pdf2image_backend
             if pdf2image_backend.is_available():
@@ -121,16 +131,13 @@ def detect_strategy(file_path: str | Path) -> str:
                 return "tesseract_pdf"
             return "pypdf_fallback"
 
-        if not _pdf_has_text(path):
-            # No text at all — need OCR
-            from text_extractor.backends import pdf2image_backend
-            if pdf2image_backend.is_available():
-                return "pdf2image_ocr"
-            if tesseract_backend.is_available():
-                return "tesseract_pdf"
-            return "pypdf_fallback"
-        # Has text — quality determined at extraction time
-        # But if quick sample already looks garbled, prefer pdfplumber.
+        # Dense text found.  Prefer pymupdf when available; it is fast and
+        # handles custom font encodings that trip up pypdf/pdfplumber.
+        from text_extractor.backends import pymupdf_backend
+        if pymupdf_backend.is_available():
+            return "pymupdf"
+
+        # pymupdf not installed — fall back to pypdf / pdfplumber.
         if quick_score < 0.85:
             from text_extractor.backends import pdfplumber_backend
             from text_extractor.backends import docling_backend
@@ -183,12 +190,22 @@ def extract(
             "Supported: .pdf, .png, .jpg, .jpeg, .gif, .bmp, .tiff, .tif, .webp",
         )
 
-    # Text PDFs — quality-aware selection
+    # ── Text PDFs: quality-aware extraction chain ─────────────────────────────
+    #
+    # Preferred order (when pymupdf installed):
+    #   pymupdf → (quality check) → pdfplumber → docling → OCR
+    #
+    # When pymupdf is absent:
+    #   pypdf → pdfplumber → docling → OCR
+    #
+    # "docling" and "pdfplumber" strategy values are direct routes when
+    # detect_strategy() already determined the right starting backend.
+    # ─────────────────────────────────────────────────────────────────────────
+
     if strategy == "docling":
         from text_extractor.backends import docling_backend
         if start_page is not None or end_page is not None:
-            # Docling's extract_pages() does not currently honor page ranges,
-            # so preserve caller semantics by falling back to a page-aware backend.
+            # Docling does not honour page ranges — fall back to a page-aware backend.
             from text_extractor.backends import pdfplumber_backend
             if pdfplumber_backend.is_available():
                 result = pdfplumber_backend.extract_pages(path, start_page or 1, end_page or 10**9)
@@ -202,6 +219,7 @@ def extract(
                 result = pypdf_extract(path)
         else:
             result = pypdf_extract(path)
+
     elif strategy == "pdfplumber":
         from text_extractor.backends import pdfplumber_backend
         if pdfplumber_backend.is_available():
@@ -214,8 +232,17 @@ def extract(
                 result = pypdf_extract_pages(path, start_page or 1, end_page or 10**9)
             else:
                 result = pypdf_extract(path)
+
+    elif strategy == "pymupdf":
+        # Step 1 (preferred): PyMuPDF — fast and handles custom font encodings.
+        from text_extractor.backends import pymupdf_backend
+        if start_page is not None or end_page is not None:
+            result = pymupdf_backend.extract_pages(path, start_page or 1, end_page or 10**9)
+        else:
+            result = pymupdf_backend.extract(path)
+
     else:
-        # Step 1: pypdf (fastest)
+        # strategy == "pypdf" or "pypdf_fallback"
         if start_page is not None or end_page is not None:
             result = pypdf_extract_pages(path, start_page or 1, end_page or 10**9)
         else:
@@ -224,15 +251,16 @@ def extract(
     sample = _sample_text(result)
     score = text_quality_score(sample)
     density = sum(1 for c in sample if c.isalnum()) / max(1, min(5, len(result.pages)))
-    logger.info("pypdf quality score: %.2f", score)
+    logger.info("%s quality score: %.2f  density: %.0f", strategy, score, density)
 
     if score >= 0.85 and density >= 120 and not is_low_quality(sample, page_count=1):
         _log_timing(result, t0)
         return result
 
-    # Step 2: pdfplumber (better font decoding)
+    # Step 2: pdfplumber — better font decoding than pypdf.
+    # Skip if we already tried it above (strategy == "pdfplumber").
     from text_extractor.backends import pdfplumber_backend
-    if pdfplumber_backend.is_available():
+    if strategy not in ("pdfplumber", "docling") and pdfplumber_backend.is_available():
         logger.info("Quality low (%.2f), trying pdfplumber...", score)
         if start_page is not None or end_page is not None:
             plumber_result = pdfplumber_backend.extract_pages(path, start_page or 1, end_page or 10**9)
@@ -246,17 +274,17 @@ def extract(
             _log_timing(plumber_result, t0)
             return plumber_result
 
-        # Keep the better one
         if plumber_score > score:
             result = plumber_result
             score = plumber_score
 
-    # Step 3: docling (optional high-quality parser)
+    # Step 3: docling (optional heavy parser).
     from text_extractor.backends import docling_backend
     if (
         start_page is None
         and end_page is None
-        and (score < 0.85 or density < 120)
+        and score < 0.85
+        and strategy not in ("docling",)
         and docling_backend.is_available()
     ):
         logger.info("Quality still low (%.2f), trying docling...", score)
@@ -265,26 +293,20 @@ def extract(
             docling_sample = _sample_text(docling_result)
             docling_score = text_quality_score(docling_sample)
             logger.info("docling quality score: %.2f", docling_score)
-
             if docling_score > score:
                 result = docling_result
                 score = docling_score
         except Exception:
             logger.exception("Docling extraction failed; continuing to OCR fallback.")
 
-    # Step 4: pdf2image + OCR (last resort for PDFs)
+    # Step 4: pdf2image + OCR (last resort).
     from text_extractor.backends import pdf2image_backend
-    if (score < 0.85 or density < 120) and pdf2image_backend.is_available():
+    if score < 0.85 and pdf2image_backend.is_available():
         logger.info("Quality still low (%.2f), trying pdf2image+OCR...", score)
-        ocr_result = pdf2image_backend.extract(
-            path,
-            start_page=start_page,
-            end_page=end_page,
-        )
+        ocr_result = pdf2image_backend.extract(path, start_page=start_page, end_page=end_page)
         ocr_sample = _sample_text(ocr_result)
         ocr_score = text_quality_score(ocr_sample)
         logger.info("pdf2image+OCR quality score: %.2f", ocr_score)
-
         if ocr_score > score:
             result = ocr_result
 

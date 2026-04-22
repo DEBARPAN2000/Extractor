@@ -5,7 +5,25 @@ Used by the router to decide whether to escalate from fast-path to OCR.
 
 from __future__ import annotations
 
+import re
 import unicodedata
+
+_CID_PATTERN = re.compile(r"\(cid:\d+\)")
+
+
+def cid_ratio(text: str) -> float:
+    """Fraction of characters that are part of (cid:N) PDF font-encoding artifacts.
+
+    pypdf and pdfplumber emit these when they cannot map a glyph to Unicode.
+    Because the pattern is ASCII, garbled_ratio() returns 0 for such text —
+    this function provides the explicit check.
+
+    Returns 0.0 (no CID patterns) to 1.0 (entirely CID patterns).
+    """
+    if not text:
+        return 0.0
+    cid_chars = sum(len(m) for m in _CID_PATTERN.findall(text))
+    return cid_chars / len(text) if cid_chars else 0.0
 
 
 def _char_categories(text: str) -> dict[str, int]:
@@ -76,10 +94,15 @@ def is_low_quality(text: str, page_count: int = 1) -> bool:
     """Check if extracted text is likely low quality.
 
     Criteria:
-    - garbled_ratio > 0.15 (>15% suspicious chars)
+    - cid_ratio > 0.05  (CID font-encoding artifacts — pypdf/pdfplumber decode failure)
+    - garbled_ratio > 0.12 (>12% suspicious Unicode chars)
     - OR very low chars-per-page for a document that should have content
     """
     if not text.strip():
+        return True
+
+    # CID artifacts are a definitive sign that the backend failed to decode fonts.
+    if cid_ratio(text) > 0.05:
         return True
 
     # Check garbled ratio
@@ -97,8 +120,11 @@ def is_low_quality(text: str, page_count: int = 1) -> bool:
 def text_quality_score(text: str) -> float:
     """Score text quality from 0.0 (garbage) to 1.0 (clean).
 
+    CID artifacts and garbled chars both reduce the score.
     Used for comparing backends on the same document.
     """
     if not text.strip():
         return 0.0
-    return max(0.0, 1.0 - garbled_ratio(text))
+    # Take the worse of garbled and CID penalties.
+    penalty = max(garbled_ratio(text), cid_ratio(text))
+    return max(0.0, 1.0 - penalty)
