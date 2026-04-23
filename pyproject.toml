@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "text-extractor-lightweight"
-version = "0.2.0"
+version = "1.0.1"
 description = "Lightweight MCP server + CLI for extracting text from PDFs and images. Agent-first, zero-config."
 readme = "README.md"
 license = "MIT"
@@ -12,7 +12,7 @@ requires-python = ">=3.10"
 authors = [{ name = "debar" }]
 keywords = ["mcp", "pdf", "ocr", "text-extraction", "llm", "agent"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
