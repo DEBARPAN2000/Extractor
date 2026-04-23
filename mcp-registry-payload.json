@@ -18,11 +18,10 @@
     "min_version": "3.10"
   },
   "launch": {
-    "command": "uvx",
+    "command": "python",
     "args": [
-      "--from",
-      "text-extractor-lightweight",
-      "text-extractor-mcp"
+      "-m",
+      "text_extractor.mcp_server"
     ],
     "transport": "stdio"
   },

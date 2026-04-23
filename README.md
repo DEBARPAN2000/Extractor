@@ -103,12 +103,14 @@ VS Code MCP config (`.vscode/mcp.json`):
 {
   "servers": {
     "text-extractor": {
-      "command": "uvx",
-      "args": ["--from", "text-extractor-lightweight", "text-extractor-mcp"]
+      "command": "python",
+      "args": ["-m", "text_extractor.mcp_server"]
     }
   }
 }
 ```
+
+Use `uvx` for ad-hoc manual runs, but prefer `python -m text_extractor.mcp_server` in MCP stdio clients to avoid installer output mixing into the protocol stream.
 
 Claude Code:
 
